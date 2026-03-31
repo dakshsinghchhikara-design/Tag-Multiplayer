@@ -58,18 +58,28 @@ export default function Game({ roomId, username, avatar, onLeave }: { roomId: st
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [socket, setSocket] = useState<Socket | null>(null);
   const [myId, setMyId] = useState<string | null>(null);
+  const [connectionStatus, setConnectionStatus] = useState<'connecting' | 'connected' | 'error'>('connecting');
   const imageCache = useRef<Record<string, HTMLImageElement>>({});
   
+  // Mobile controls state
+  const keysRef = useRef({ left: false, right: false, jump: false });
+  const [joystickPos, setJoystickPos] = useState({ x: 0, y: 0 });
+  const joystickBaseRef = useRef<HTMLDivElement>(null);
+  const joystickTouchId = useRef<number | null>(null);
+
   useEffect(() => {
-  const newSocket = io("https://tag-multiplayer-mpvd.onrender.com", {
-    transports: ["websocket"]
-  });
+    const newSocket = io();
+    setSocket(newSocket);
 
-  setSocket(newSocket);
+    newSocket.on('connect', () => {
+      setConnectionStatus('connected');
+      newSocket.emit('joinRoom', { roomId, username, avatar });
+    });
 
-  newSocket.on('connect', () => {
-    newSocket.emit('joinRoom', { roomId, username, avatar });
-  });
+    newSocket.on('connect_error', (err) => {
+      console.error('Socket connection error:', err);
+      setConnectionStatus('error');
+    });
 
     newSocket.on('joined', (data: { id: string, roomId: string }) => {
       setMyId(data.id);
@@ -102,20 +112,17 @@ export default function Game({ roomId, username, avatar, onLeave }: { roomId: st
     // Client-side prediction
     let pendingInputs: Input[] = [];
     let sequenceNumber = 0;
-    
-    // Input state
-    const keys = { left: false, right: false, jump: false };
 
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.code === 'ArrowLeft' || e.code === 'KeyA') keys.left = true;
-      if (e.code === 'ArrowRight' || e.code === 'KeyD') keys.right = true;
-      if (e.code === 'ArrowUp' || e.code === 'KeyW' || e.code === 'Space') keys.jump = true;
+      if (e.code === 'ArrowLeft' || e.code === 'KeyA') keysRef.current.left = true;
+      if (e.code === 'ArrowRight' || e.code === 'KeyD') keysRef.current.right = true;
+      if (e.code === 'ArrowUp' || e.code === 'KeyW' || e.code === 'Space') keysRef.current.jump = true;
     };
 
     const handleKeyUp = (e: KeyboardEvent) => {
-      if (e.code === 'ArrowLeft' || e.code === 'KeyA') keys.left = false;
-      if (e.code === 'ArrowRight' || e.code === 'KeyD') keys.right = false;
-      if (e.code === 'ArrowUp' || e.code === 'KeyW' || e.code === 'Space') keys.jump = false;
+      if (e.code === 'ArrowLeft' || e.code === 'KeyA') keysRef.current.left = false;
+      if (e.code === 'ArrowRight' || e.code === 'KeyD') keysRef.current.right = false;
+      if (e.code === 'ArrowUp' || e.code === 'KeyW' || e.code === 'Space') keysRef.current.jump = false;
     };
 
     window.addEventListener('keydown', handleKeyDown);
@@ -205,7 +212,7 @@ export default function Game({ roomId, username, avatar, onLeave }: { roomId: st
     physicsIntervalId = setInterval(() => {
       // 1. Process local input and send to server
       sequenceNumber++;
-      const currentInput = { seq: sequenceNumber, left: keys.left, right: keys.right, jump: keys.jump };
+      const currentInput = { seq: sequenceNumber, left: keysRef.current.left, right: keysRef.current.right, jump: keysRef.current.jump };
       pendingInputs.push(currentInput);
       socket.emit('input', currentInput);
 
@@ -418,6 +425,65 @@ export default function Game({ roomId, username, avatar, onLeave }: { roomId: st
     };
   }, [socket, myId]);
 
+  const handleJoystickStart = (e: React.TouchEvent) => {
+    const touch = e.changedTouches[0];
+    joystickTouchId.current = touch.identifier;
+    updateJoystick(touch);
+  };
+
+  const handleJoystickMove = (e: React.TouchEvent) => {
+    for (let i = 0; i < e.changedTouches.length; i++) {
+      if (e.changedTouches[i].identifier === joystickTouchId.current) {
+        updateJoystick(e.changedTouches[i]);
+      }
+    }
+  };
+
+  const handleJoystickEnd = (e: React.TouchEvent) => {
+    for (let i = 0; i < e.changedTouches.length; i++) {
+      if (e.changedTouches[i].identifier === joystickTouchId.current) {
+        joystickTouchId.current = null;
+        setJoystickPos({ x: 0, y: 0 });
+        keysRef.current.left = false;
+        keysRef.current.right = false;
+      }
+    }
+  };
+
+  const updateJoystick = (touch: React.Touch) => {
+    if (!joystickBaseRef.current) return;
+    const rect = joystickBaseRef.current.getBoundingClientRect();
+    const centerX = rect.left + rect.width / 2;
+    const centerY = rect.top + rect.height / 2;
+    
+    let dx = touch.clientX - centerX;
+    let dy = touch.clientY - centerY;
+    
+    const maxDist = rect.width / 2;
+    const dist = Math.sqrt(dx * dx + dy * dy);
+    
+    if (dist > maxDist) {
+      dx = (dx / dist) * maxDist;
+      dy = (dy / dist) * maxDist;
+    }
+    
+    setJoystickPos({ x: dx, y: dy });
+    
+    if (dx < -15) {
+      keysRef.current.left = true;
+      keysRef.current.right = false;
+    } else if (dx > 15) {
+      keysRef.current.right = true;
+      keysRef.current.left = false;
+    } else {
+      keysRef.current.left = false;
+      keysRef.current.right = false;
+    }
+  };
+
+  const handleJumpStart = () => { keysRef.current.jump = true; };
+  const handleJumpEnd = () => { keysRef.current.jump = false; };
+
   return (
     <div className="flex flex-col items-center justify-center w-full h-full">
       <div className="mb-4 flex items-center justify-between w-full max-w-[1200px]">
@@ -430,14 +496,58 @@ export default function Game({ roomId, username, avatar, onLeave }: { roomId: st
         </button>
       </div>
       <div className="relative shadow-2xl rounded-lg overflow-hidden border-4 border-gray-800 w-full max-w-[1200px] aspect-[3/2]">
+        {connectionStatus === 'connecting' && (
+          <div className="absolute inset-0 flex items-center justify-center bg-[#4cb5f9] z-10">
+            <div className="text-white text-2xl font-bold animate-pulse">Connecting to server...</div>
+          </div>
+        )}
+        {connectionStatus === 'error' && (
+          <div className="absolute inset-0 flex flex-col items-center justify-center bg-[#4cb5f9] z-10 p-8 text-center">
+            <div className="text-red-500 text-2xl font-bold mb-4 bg-white px-4 py-2 rounded">Connection Error</div>
+            <p className="text-white text-lg max-w-md">
+              Could not connect to the multiplayer server. If you deployed this to Render, make sure you created a <strong>Web Service</strong> and not a Static Site, and that your backend is running.
+            </p>
+          </div>
+        )}
         <canvas 
           ref={canvasRef} 
           width={WORLD_WIDTH} 
           height={WORLD_HEIGHT}
           className="w-full h-full object-contain bg-[#4cb5f9] block"
         />
+        
+        {/* Mobile Controls Overlay */}
+        <div className="absolute inset-0 pointer-events-none flex justify-between items-end p-4 sm:p-8 z-20 md:hidden">
+          {/* Joystick */}
+          <div 
+            ref={joystickBaseRef}
+            className="w-28 h-28 sm:w-32 sm:h-32 bg-white/20 rounded-full border-2 border-white/40 relative pointer-events-auto touch-none backdrop-blur-sm"
+            onTouchStart={handleJoystickStart}
+            onTouchMove={handleJoystickMove}
+            onTouchEnd={handleJoystickEnd}
+            onTouchCancel={handleJoystickEnd}
+          >
+            <div 
+              className="w-12 h-12 sm:w-16 sm:h-16 bg-white/70 rounded-full absolute top-1/2 left-1/2 shadow-lg"
+              style={{ transform: `translate(calc(-50% + ${joystickPos.x}px), calc(-50% + ${joystickPos.y}px))` }}
+            />
+          </div>
+
+          {/* Jump Button */}
+          <div 
+            className="w-20 h-20 sm:w-24 sm:h-24 bg-white/20 rounded-full border-2 border-white/40 flex items-center justify-center pointer-events-auto touch-none active:bg-white/50 backdrop-blur-sm mb-2 sm:mb-4 mr-2 sm:mr-4"
+            onTouchStart={handleJumpStart}
+            onTouchEnd={handleJumpEnd}
+            onTouchCancel={handleJumpEnd}
+            onMouseDown={handleJumpStart}
+            onMouseUp={handleJumpEnd}
+            onMouseLeave={handleJumpEnd}
+          >
+            <span className="text-white font-bold text-lg sm:text-xl select-none">JUMP</span>
+          </div>
+        </div>
       </div>
-      <div className="mt-4 text-gray-600 flex gap-6">
+      <div className="mt-4 text-gray-600 hidden md:flex gap-6">
         <div className="flex items-center gap-2">
           <kbd className="px-2 py-1 bg-gray-200 rounded border border-gray-300 font-mono text-sm">A</kbd>
           <kbd className="px-2 py-1 bg-gray-200 rounded border border-gray-300 font-mono text-sm">D</kbd>
