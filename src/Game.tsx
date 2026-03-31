@@ -61,7 +61,9 @@ export default function Game({ roomId, username, avatar, onLeave }: { roomId: st
   const imageCache = useRef<Record<string, HTMLImageElement>>({});
   
   useEffect(() => {
-    const newSocket = io();
+    const socket = io("https://tag-multiplayer-mpvd.onrender.com", {
+  transports: ["websocket"]
+});
     setSocket(newSocket);
 
     newSocket.on('connect', () => {
