@@ -4,7 +4,7 @@ import { Server } from 'socket.io';
 import http from 'http';
 import path from 'path';
 
-const PORT = 3000;
+const PORT = process.env.PORT || 3000;
 const TICK_RATE = 60; // 60 updates per second for physics
 const UPDATE_RATE = 15; // 15 updates per second sent to clients
 const GRAVITY = 0.5;
