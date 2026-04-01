@@ -10,6 +10,7 @@ export default function App() {
   const [roomId, setRoomId] = useState('');
   const [joinRoomId, setJoinRoomId] = useState('');
   const [showJoinInput, setShowJoinInput] = useState(false);
+  const [timeLimit, setTimeLimit] = useState(120);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -47,7 +48,7 @@ export default function App() {
   if (step === 'game') {
     return (
       <div className="min-h-screen bg-gray-100 flex items-center justify-center p-4">
-        <Game roomId={roomId} username={username} avatar={avatar} onLeave={() => setStep('room')} />
+        <Game roomId={roomId} username={username} avatar={avatar} timeLimit={timeLimit} onLeave={() => setStep('room')} />
       </div>
     );
   }
@@ -146,6 +147,20 @@ export default function App() {
               >
                 Edit
               </button>
+            </div>
+
+            <div className="mb-4">
+              <label className="block text-sm font-medium text-gray-700 mb-1">Time Limit</label>
+              <select
+                value={timeLimit}
+                onChange={(e) => setTimeLimit(Number(e.target.value))}
+                className="w-full px-4 py-2 border border-gray-300 rounded-md focus:ring-indigo-500 focus:border-indigo-500 outline-none transition-colors"
+              >
+                <option value={60}>1 Minute</option>
+                <option value={120}>2 Minutes</option>
+                <option value={180}>3 Minutes</option>
+                <option value={300}>5 Minutes</option>
+              </select>
             </div>
 
             <button
