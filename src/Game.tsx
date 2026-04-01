@@ -71,7 +71,9 @@ export default function Game({ roomId, username, avatar, timeLimit, onLeave }: {
   const joystickTouchId = useRef<number | null>(null);
 
   useEffect(() => {
-    const newSocket = io();
+    const newSocket = io({
+      transports: ['websocket'], // Force WebSockets, disable HTTP polling
+    });
     setSocket(newSocket);
 
     newSocket.on('connect', () => {
