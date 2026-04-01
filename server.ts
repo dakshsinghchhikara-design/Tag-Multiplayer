@@ -4,9 +4,9 @@ import { Server } from 'socket.io';
 import http from 'http';
 import path from 'path';
 
-const PORT = process.env.PORT || 3000;
+const PORT = 3000;
 const TICK_RATE = 60; // 60 updates per second for physics
-const UPDATE_RATE = 15; // 15 updates per second sent to clients
+const UPDATE_RATE = 30; // Increased to 30 updates per second for smoother gameplay
 const GRAVITY = 0.5;
 const JUMP_SPEED = 12;
 const MOVE_SPEED = 6;
@@ -15,6 +15,7 @@ const WORLD_WIDTH = 1200;
 const WORLD_HEIGHT = 800;
 const MAX_PLAYERS = 6;
 const TAG_COOLDOWN = 60; // 1 second at 60fps
+const HITBOX_SHRINK = 6; // Shrink hitbox slightly for more accurate tagging
 
 const PLATFORMS = [
   // Bottom floor
@@ -52,6 +53,9 @@ interface Room {
   id: string;
   players: Record<string, Player>;
   itId: string | null;
+  timeLimit: number;
+  timeRemaining: number;
+  status: 'waiting' | 'playing' | 'finished';
 }
 
 const rooms: Record<string, Room> = {};
@@ -83,10 +87,10 @@ function checkRectCollision(p: {x: number, y: number}, plat: {x: number, y: numb
 
 function checkCollision(p1: Player, p2: Player) {
   return (
-    p1.x < p2.x + PLAYER_SIZE &&
-    p1.x + PLAYER_SIZE > p2.x &&
-    p1.y < p2.y + PLAYER_SIZE &&
-    p1.y + PLAYER_SIZE > p2.y
+    p1.x + HITBOX_SHRINK < p2.x + PLAYER_SIZE - HITBOX_SHRINK &&
+    p1.x + PLAYER_SIZE - HITBOX_SHRINK > p2.x + HITBOX_SHRINK &&
+    p1.y + HITBOX_SHRINK < p2.y + PLAYER_SIZE - HITBOX_SHRINK &&
+    p1.y + PLAYER_SIZE - HITBOX_SHRINK > p2.y + HITBOX_SHRINK
   );
 }
 
@@ -101,8 +105,8 @@ async function startServer() {
     console.log('Player connected:', socket.id);
     let currentRoom: string | null = null;
 
-    socket.on('joinRoom', (data: { roomId: string, username: string, avatar: string }) => {
-      const { roomId, username, avatar } = data;
+    socket.on('joinRoom', (data: { roomId: string, username: string, avatar: string, timeLimit?: number }) => {
+      const { roomId, username, avatar, timeLimit } = data;
       if (currentRoom) {
         socket.leave(currentRoom);
         if (rooms[currentRoom]) {
@@ -114,7 +118,14 @@ async function startServer() {
       }
 
       if (!rooms[roomId]) {
-        rooms[roomId] = { id: roomId, players: {}, itId: null };
+        rooms[roomId] = { 
+          id: roomId, 
+          players: {}, 
+          itId: null,
+          timeLimit: timeLimit || 120,
+          timeRemaining: timeLimit || 120,
+          status: 'playing'
+        };
       }
 
       const room = rooms[roomId];
@@ -245,7 +256,7 @@ async function startServer() {
       }
       
       // Tag logic
-      if (room.itId && room.players[room.itId]) {
+      if (room.status === 'playing' && room.itId && room.players[room.itId]) {
         const itPlayer = room.players[room.itId];
         if (itPlayer.tagCooldown <= 0) {
           for (const id of playerIds) {
@@ -260,6 +271,20 @@ async function startServer() {
               }
             }
           }
+        }
+      }
+
+      // Timer logic
+      if (room.status === 'playing') {
+        room.timeRemaining -= 1 / TICK_RATE;
+        if (room.timeRemaining <= 0) {
+          room.timeRemaining = 0;
+          room.status = 'finished';
+          const loser = room.itId ? room.players[room.itId] : null;
+          io.to(roomId).emit('gameOver', {
+            loserId: room.itId,
+            loserName: loser ? loser.username : 'Nobody'
+          });
         }
       }
     }
@@ -281,7 +306,11 @@ async function startServer() {
         username: p.username,
         avatar: p.avatar
       }));
-      io.to(roomId).emit('stateUpdate', state);
+      io.to(roomId).emit('stateUpdate', {
+        players: state,
+        timeRemaining: room.timeRemaining,
+        status: room.status
+      });
     }
   }, 1000 / UPDATE_RATE);
 
