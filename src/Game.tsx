@@ -5,7 +5,7 @@ const WORLD_WIDTH = 1200;
 const WORLD_HEIGHT = 800;
 const PLAYER_SIZE = 30;
 const GRAVITY = 0.5;
-const JUMP_SPEED = 12;
+const JUMP_SPEED = 16;
 const MOVE_SPEED = 6;
 
 const PLATFORMS = [
