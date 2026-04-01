@@ -5,7 +5,7 @@ const WORLD_WIDTH = 1200;
 const WORLD_HEIGHT = 800;
 const PLAYER_SIZE = 30;
 const GRAVITY = 0.5;
-const JUMP_SPEED = 16;
+const JUMP_SPEED = 12;
 const MOVE_SPEED = 6;
 
 const PLATFORMS = [
@@ -54,11 +54,14 @@ interface Input {
   jump: boolean;
 }
 
-export default function Game({ roomId, username, avatar, onLeave }: { roomId: string, username: string, avatar: string, onLeave: () => void }) {
+export default function Game({ roomId, username, avatar, timeLimit, onLeave }: { roomId: string, username: string, avatar: string, timeLimit: number, onLeave: () => void }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [socket, setSocket] = useState<Socket | null>(null);
   const [myId, setMyId] = useState<string | null>(null);
   const [connectionStatus, setConnectionStatus] = useState<'connecting' | 'connected' | 'error'>('connecting');
+  const [timeRemaining, setTimeRemaining] = useState<number>(timeLimit);
+  const [gameStatus, setGameStatus] = useState<'waiting' | 'playing' | 'finished'>('playing');
+  const [gameOverData, setGameOverData] = useState<{ loserId: string | null, loserName: string } | null>(null);
   const imageCache = useRef<Record<string, HTMLImageElement>>({});
   
   // Mobile controls state
@@ -73,7 +76,7 @@ export default function Game({ roomId, username, avatar, onLeave }: { roomId: st
 
     newSocket.on('connect', () => {
       setConnectionStatus('connected');
-      newSocket.emit('joinRoom', { roomId, username, avatar });
+      newSocket.emit('joinRoom', { roomId, username, avatar, timeLimit });
     });
 
     newSocket.on('connect_error', (err) => {
@@ -88,6 +91,11 @@ export default function Game({ roomId, username, avatar, onLeave }: { roomId: st
     newSocket.on('roomFull', () => {
       alert('Room is full!');
       onLeave();
+    });
+
+    newSocket.on('gameOver', (data: { loserId: string | null, loserName: string }) => {
+      setGameOverData(data);
+      setGameStatus('finished');
     });
 
     return () => {
@@ -128,7 +136,11 @@ export default function Game({ roomId, username, avatar, onLeave }: { roomId: st
     window.addEventListener('keydown', handleKeyDown);
     window.addEventListener('keyup', handleKeyUp);
 
-    socket.on('stateUpdate', (newState: PlayerState[]) => {
+    socket.on('stateUpdate', (data: { players: PlayerState[], timeRemaining: number, status: 'waiting' | 'playing' | 'finished' }) => {
+      const newState = data.players;
+      setTimeRemaining(data.timeRemaining);
+      setGameStatus(data.status);
+      
       serverState = newState;
       stateBuffer.push({ time: performance.now(), state: newState });
       
@@ -484,13 +496,22 @@ export default function Game({ roomId, username, avatar, onLeave }: { roomId: st
   const handleJumpStart = () => { keysRef.current.jump = true; };
   const handleJumpEnd = () => { keysRef.current.jump = false; };
 
+  const formatTime = (seconds: number) => {
+    const m = Math.floor(seconds / 60);
+    const s = Math.floor(seconds % 60);
+    return `${m}:${s.toString().padStart(2, '0')}`;
+  };
+
   return (
     <div className="flex flex-col items-center justify-center w-full h-full">
       <div className="mb-4 flex items-center justify-between w-full max-w-[1200px]">
         <h2 className="text-2xl font-bold text-gray-800">Room: {roomId}</h2>
+        <div className="text-2xl font-bold text-indigo-600 bg-white px-4 py-1 rounded-full shadow-sm border-2 border-indigo-100">
+          {formatTime(timeRemaining)}
+        </div>
         <button 
           onClick={onLeave}
-          className="px-4 py-2 bg-red-500 text-white rounded hover:bg-red-600 transition-colors"
+          className="px-4 py-2 bg-red-500 text-white rounded hover:bg-red-600 transition-colors font-medium shadow-sm"
         >
           Leave Room
         </button>
@@ -509,6 +530,28 @@ export default function Game({ roomId, username, avatar, onLeave }: { roomId: st
             </p>
           </div>
         )}
+        
+        {gameStatus === 'finished' && gameOverData && (
+          <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/70 z-30 p-8 text-center backdrop-blur-sm animate-in fade-in duration-500">
+            <h2 className="text-5xl sm:text-7xl font-black text-white mb-8 tracking-tight drop-shadow-lg">GAME OVER</h2>
+            {gameOverData.loserId === myId ? (
+              <div className="text-2xl sm:text-4xl font-bold text-red-600 mb-10 bg-white px-8 py-4 rounded-2xl shadow-2xl transform -rotate-2">
+                You Lost! You were IT!
+              </div>
+            ) : (
+              <div className="text-2xl sm:text-4xl font-bold text-green-600 mb-10 bg-white px-8 py-4 rounded-2xl shadow-2xl transform rotate-2">
+                You Won! {gameOverData.loserName} was IT!
+              </div>
+            )}
+            <button 
+              onClick={onLeave}
+              className="px-8 py-4 bg-indigo-600 text-white text-xl font-bold rounded-xl hover:bg-indigo-700 transition-all hover:scale-105 shadow-xl"
+            >
+              Back to Menu
+            </button>
+          </div>
+        )}
+
         <canvas 
           ref={canvasRef} 
           width={WORLD_WIDTH} 
